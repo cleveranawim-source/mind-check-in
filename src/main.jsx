@@ -255,7 +255,7 @@ function scoreAnswers(answers, risks) {
   );
   const sorted = Object.entries(domainScores).sort((a, b) => b[1] - a[1]);
   const top = sorted[0][0];
-  const secondary = sorted[1][0];
+  const secondary = sorted[1][1] > 0 ? sorted[1][0] : null;
   const topScore = sorted[0][1];
   const topTies = sorted.filter(([, value]) => value === topScore).map(([key]) => key);
   const highDomains = sorted.filter(([, value]) => value >= 70).map(([key]) => key);
@@ -270,6 +270,15 @@ function scoreAnswers(answers, risks) {
 }
 
 function buildResultProfile(result) {
+  if (result.total === 0) {
+    return {
+      neutral: true,
+      title: "응답 요약",
+      subtitle: "36개 일반 문항 모두 ‘전혀 아님’으로 응답했습니다.",
+      description: "이번 응답에서 일반 문항의 부담 신호가 체크되지 않았습니다. 이 결과만으로 현재 마음건강 상태를 판단할 수는 없습니다.",
+    };
+  }
+
   if (result.allHigh) {
     const detailProfiles = makeDetailProfiles(result.sorted.map(([key]) => key));
 
@@ -319,15 +328,20 @@ function buildResultProfile(result) {
   }
 
   const profile = profiles[result.top];
-  const secondaryProfile = profiles[result.secondary];
+  const secondaryProfile = result.secondary ? profiles[result.secondary] : null;
 
   return {
     ...profile,
-    signalLabel: "보조 신호",
-    signalTitle: secondaryProfile.title,
-    signalBody: `${secondaryProfile.subtitle} ${secondaryProfile.description}`,
-    interpretation:
-      "점수는 질병 여부가 아니라 최근 2주 동안 어떤 회복 과제가 두드러지는지 보여줍니다. 주 유형은 가장 높은 영역, 보조 신호는 두 번째로 높은 영역이며, 위기 신호는 점수와 상관없이 별도로 우선 대응합니다.",
+    ...(secondaryProfile && {
+      signalLabel: "보조 신호",
+      signalTitle: secondaryProfile.title,
+      signalBody: `${secondaryProfile.subtitle} ${secondaryProfile.description}`,
+    }),
+    interpretation: [
+      "점수는 질병 여부가 아니라 최근 2주 동안 어떤 회복 과제가 두드러지는지 보여줍니다. 주 유형은 가장 높은 영역입니다.",
+      secondaryProfile && "보조 신호는 두 번째로 높은 영역입니다.",
+      "위기 신호는 점수와 상관없이 별도로 우선 대응합니다.",
+    ].filter(Boolean).join(" "),
   };
 }
 
@@ -648,13 +662,15 @@ function App() {
             <p className="eyebrow">개인 리포트</p>
             <h1>{profile.title}</h1>
             <p>{profile.subtitle}</p>
-            <div className="profile-pair">
-              <span>{profile.signalLabel}</span>
-              <strong>{profile.signalTitle}</strong>
-            </div>
+            {profile.signalTitle && (
+              <div className="profile-pair">
+                <span>{profile.signalLabel}</span>
+                <strong>{profile.signalTitle}</strong>
+              </div>
+            )}
           </div>
           <div className="score-dial">
-            <span>{result.severity}</span>
+            <span>{profile.neutral ? "일반 문항" : result.severity}</span>
             <strong>{result.overallScore}</strong>
             <small>전체 부담</small>
           </div>
@@ -670,83 +686,94 @@ function App() {
           </section>
         )}
 
-        <section className="result-grid">
-          <article className="wide-card">
-            <p className="result-kicker">메인 유형 해석</p>
-            <h2>{profile.title}에 대한 해석</h2>
-            <p>{profile.description}</p>
-            <div className="secondary-profile">
-              <span className="result-kicker">{profile.signalLabel} 설명</span>
-              <strong>{profile.signalTitle}</strong>
-              <span>{profile.signalBody}</span>
-            </div>
-            {profile.detailProfiles && (
-              <div className="combined-details">
-                <span className="result-kicker">{profile.detailTitle}</span>
-                <p>{profile.detailLead}</p>
-                <div className="detail-card-list">
-                  {profile.detailProfiles.map((item) => (
-                    <article className="detail-card" key={item.key}>
-                      <div className="detail-card-head">
-                        <span aria-hidden="true">{item.mark}</span>
-                        <div>
-                          <strong>{item.title}</strong>
-                          <p>{item.subtitle}</p>
-                        </div>
-                      </div>
-                      <p>{item.description}</p>
-                      <div className="detail-action-grid">
-                        <div>
-                          <b>오늘 도움이 되는 행동</b>
-                          <ul className="check-list">
-                            {item.immediate.slice(0, 2).map((action) => <li key={action}>{action}</li>)}
-                          </ul>
-                        </div>
-                        <div>
-                          <b>이번 주 살펴볼 조정</b>
-                          <ul className="check-list">
-                            {item.weekly.slice(0, 2).map((action) => <li key={action}>{action}</li>)}
-                          </ul>
-                        </div>
-                      </div>
-                    </article>
-                  ))}
+        {profile.neutral ? (
+          <section className="result-grid">
+            <article className="wide-card">
+              <h2>결과 안내</h2>
+              <p>{profile.description}</p>
+            </article>
+          </section>
+        ) : (
+          <section className="result-grid">
+            <article className="wide-card">
+              <p className="result-kicker">메인 유형 해석</p>
+              <h2>{profile.title}에 대한 해석</h2>
+              <p>{profile.description}</p>
+              {profile.signalTitle && (
+                <div className="secondary-profile">
+                  <span className="result-kicker">{profile.signalLabel} 설명</span>
+                  <strong>{profile.signalTitle}</strong>
+                  <span>{profile.signalBody}</span>
                 </div>
-                <div className="overlap-note">
-                  <strong>함께 나타날 때의 핵심 해석</strong>
-                  <p>{profile.overlapExplanation}</p>
+              )}
+              {profile.detailProfiles && (
+                <div className="combined-details">
+                  <span className="result-kicker">{profile.detailTitle}</span>
+                  <p>{profile.detailLead}</p>
+                  <div className="detail-card-list">
+                    {profile.detailProfiles.map((item) => (
+                      <article className="detail-card" key={item.key}>
+                        <div className="detail-card-head">
+                          <span aria-hidden="true">{item.mark}</span>
+                          <div>
+                            <strong>{item.title}</strong>
+                            <p>{item.subtitle}</p>
+                          </div>
+                        </div>
+                        <p>{item.description}</p>
+                        <div className="detail-action-grid">
+                          <div>
+                            <b>오늘 도움이 되는 행동</b>
+                            <ul className="check-list">
+                              {item.immediate.slice(0, 2).map((action) => <li key={action}>{action}</li>)}
+                            </ul>
+                          </div>
+                          <div>
+                            <b>이번 주 살펴볼 조정</b>
+                            <ul className="check-list">
+                              {item.weekly.slice(0, 2).map((action) => <li key={action}>{action}</li>)}
+                            </ul>
+                          </div>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                  <div className="overlap-note">
+                    <strong>함께 나타날 때의 핵심 해석</strong>
+                    <p>{profile.overlapExplanation}</p>
+                  </div>
                 </div>
+              )}
+              <div className="interpretation-note">
+                <strong>해석 원칙</strong>
+                <span>{profile.interpretation}</span>
               </div>
-            )}
-            <div className="interpretation-note">
-              <strong>해석 원칙</strong>
-              <span>{profile.interpretation}</span>
-            </div>
-            <div className="domain-bars">
-              {result.sorted.map(([key, value]) => (
-                <div className="bar-row" key={key}>
-                  <span>{domains[key]}</span>
-                  <div><i style={{ width: `${value}%` }} /></div>
-                  <strong>{value}</strong>
-                </div>
-              ))}
-            </div>
-          </article>
+              <div className="domain-bars">
+                {result.sorted.map(([key, value]) => (
+                  <div className="bar-row" key={key}>
+                    <span>{domains[key]}</span>
+                    <div><i style={{ width: `${value}%` }} /></div>
+                    <strong>{value}</strong>
+                  </div>
+                ))}
+              </div>
+            </article>
 
-          <article>
-            <h2>오늘 바로 할 일</h2>
-            <ul className="check-list">
-              {profile.immediate.map((item) => <li key={item}>{item}</li>)}
-            </ul>
-          </article>
+            <article>
+              <h2>오늘 바로 할 일</h2>
+              <ul className="check-list">
+                {profile.immediate.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </article>
 
-          <article>
-            <h2>이번 주 회복 설계</h2>
-            <ul className="check-list">
-              {profile.weekly.map((item) => <li key={item}>{item}</li>)}
-            </ul>
-          </article>
-        </section>
+            <article>
+              <h2>이번 주 회복 설계</h2>
+              <ul className="check-list">
+                {profile.weekly.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </article>
+          </section>
+        )}
         <footer className="watermark">LevLab</footer>
       </div>
 
